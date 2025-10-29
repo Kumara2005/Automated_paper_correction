@@ -1,0 +1,48 @@
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+.env/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+
+# Test/coverage
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+
+# Logs
+*.log
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Streamlit secrets (DO NOT COMMIT KEYS)
+.streamlit/secrets.toml
+
+# Results data (student/grade outputs)
+results/*.json
+results/**/*.json
+
+# Pillow / image caches
+*.thumb
+
+# Jupyter (if any appear later)
+.ipynb_checkpoints/
+
+# Local tooling
+*.local
