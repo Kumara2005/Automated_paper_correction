@@ -1,6 +1,9 @@
 streamlit
-google-generativeai
-PyMuPDF
-pillow
 pandas
+google-generativeai
+python-dotenv
 python-docx
+pdf2image
+Pillow
+sentence-transformers
+bcrypt
