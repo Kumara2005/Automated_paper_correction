@@ -130,4 +130,4 @@ def handle_logout():
     st.session_state.username = None
     st.session_state.role = None
     st.session_state.subject = None
-    st.rerun()
+    #st.rerun()
