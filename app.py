@@ -63,6 +63,32 @@ def show_teacher_dashboard():
     
     with tab1:
         st.header("Grade New Student Papers")
+        
+        # --- MODEL SELECTION ---
+        st.subheader("⚙️ Model Selection")
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            # Fetch available models
+            available_models = utils.get_available_gemini_models()
+            
+            if available_models:
+                selected_model = st.selectbox(
+                    "Choose Gemini Model for OCR and Feedback",
+                    options=available_models,
+                    index=0,  # Default to first (usually latest)
+                    help="Select which Gemini model to use for text extraction and feedback generation. The system will automatically fall back to other models if your selection fails."
+                )
+                st.session_state['preferred_model'] = selected_model
+                st.success(f"✅ Selected: {selected_model}")
+            else:
+                st.warning("⚠️ Could not fetch model list. System will use automatic fallback.")
+                st.session_state['preferred_model'] = None
+        
+        with col2:
+            st.info("💡 **Tip:** If a model fails, the system automatically tries fallback models.")
+        
+        st.divider()
 
         # --- STEP 1: ASK FOR NUMBER OF STUDENTS ---
         st.subheader("1. Select Number of Students")
@@ -138,6 +164,9 @@ def show_teacher_dashboard():
                 st.error("Please upload the Teacher's Answer Key to proceed.")
                 st.stop()
 
+            # Get preferred model from session state
+            preferred_model = st.session_state.get('preferred_model', None)
+
             # --- Start Grading Logic ---
             with st.spinner("Step 1/3: Processing teacher's answer key..."):
                 teacher_data = utils.process_uploaded_file(teacher_file)
@@ -154,7 +183,7 @@ def show_teacher_dashboard():
                 if isinstance(teacher_data, tuple) and teacher_data[1] == "docx":
                     teacher_text = teacher_data[0] 
                 else:
-                    teacher_text = utils.extract_text_from_images(teacher_data, teacher_prompt)
+                    teacher_text = utils.extract_text_from_images(teacher_data, teacher_prompt, preferred_model=preferred_model)
                 
                 if not teacher_text:
                     st.error("Failed to extract text from teacher's key.")
@@ -185,7 +214,7 @@ def show_teacher_dashboard():
                     - Transcribe the rest of the handwriting as accurately as possible, preserving newlines.
                     """
                     
-                    student_text = utils.extract_text_from_images(student_images, student_prompt)
+                    student_text = utils.extract_text_from_images(student_images, student_prompt, preferred_model=preferred_model)
                     
                     if not student_text:
                         st.warning(f"Could not extract text for {student_name}. Skipping.")
@@ -199,7 +228,7 @@ def show_teacher_dashboard():
                     percentage = (total / max_s) * 100 if max_s > 0 else 0
                     results_df = pd.DataFrame(results)
                     
-                    overall_feedback = utils.get_overall_feedback(student_name, st.session_state.subject, total, max_s, results_df)
+                    overall_feedback = utils.get_overall_feedback(student_name, st.session_state.subject, total, max_s, results_df, preferred_model=preferred_model)
                     
                     summary = {
                         "total_score": total,

@@ -14,6 +14,49 @@ import time
 import traceback
 # --- File Processing & AI Configuration ---
 
+# --- Model Management Functions ---
+
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def get_available_gemini_models():
+    """Fetches all available Gemini models that support generateContent."""
+    try:
+        api_key = None
+        if 'GOOGLE_API_KEY' in st.secrets:
+            api_key = st.secrets['GOOGLE_API_KEY']
+        elif 'GEMINI_API_KEY' in st.secrets:
+            api_key = st.secrets['GEMINI_API_KEY']
+        
+        if not api_key:
+            return []
+        
+        genai.configure(api_key=api_key)
+        models = genai.list_models()
+        
+        # Filter models that support generateContent
+        available = []
+        for model in models:
+            if 'generateContent' in getattr(model, 'supported_generation_methods', []):
+                available.append(model.name)
+        
+        return sorted(available)
+    except Exception as e:
+        st.warning(f"Could not fetch model list: {e}")
+        return []
+
+def get_default_model_fallback():
+    """Returns a list of fallback models in priority order."""
+    return [
+        'models/gemini-2.5-flash',
+        'models/gemini-2.5-pro',
+        'models/gemini-flash-latest',
+        'models/gemini-2.0-flash',
+        'models/gemini-2.0-flash-exp',
+        'models/gemini-exp-1206',
+        'models/gemini-pro-latest',
+        'models/gemini-1.5-flash',
+        'models/gemini-1.5-pro',
+    ]
+
 @st.cache_resource
 def get_sentence_transformer():
     """Loads and caches the local sentence transformer model."""
@@ -32,11 +75,14 @@ def get_cross_encoder():
         return None
 
 @st.cache_resource
-def get_gemini_model():
-    """Configures and returns a Gemini generative model instance.
-
-    The function reads the API key from `st.secrets` (GOOGLE_API_KEY or GEMINI_API_KEY).
-    It configures the `google.generativeai` client and returns a configured GenerativeModel.
+def get_gemini_model(_preferred_model=None):
+    """Configures and returns a Gemini model with automatic fallback logic.
+    
+    Args:
+        _preferred_model: User's preferred model name (with 'models/' prefix)
+        
+    Returns:
+        A configured GenerativeModel instance, or None if all attempts fail
     """
     try:
         api_key = None
@@ -49,8 +95,38 @@ def get_gemini_model():
             raise RuntimeError('No API key found in st.secrets (GOOGLE_API_KEY or GEMINI_API_KEY)')
 
         genai.configure(api_key=api_key)
-        # Use a generic 'pro' alias; change if you want a different exact model name
-        return genai.GenerativeModel('models/gemini-pro-latest')
+        
+        # Get available models (cached)
+        available_models = get_available_gemini_models()
+        
+        if not available_models:
+            st.warning("Could not fetch model list. Using default fallback.")
+            available_models = get_default_model_fallback()
+        
+        # Try preferred model first
+        if _preferred_model and _preferred_model in available_models:
+            try:
+                model = genai.GenerativeModel(_preferred_model)
+                st.success(f"✅ Using model: {_preferred_model}")
+                return model
+            except Exception as e:
+                st.warning(f"Failed to load {_preferred_model}: {e}. Trying fallback...")
+        
+        # Fallback logic - try models in order
+        for model_name in get_default_model_fallback():
+            if model_name in available_models:
+                try:
+                    model = genai.GenerativeModel(model_name)
+                    if not _preferred_model:  # Only show info if no preference was set
+                        st.info(f"📌 Using model: {model_name}")
+                    else:
+                        st.info(f"📌 Using fallback model: {model_name}")
+                    return model
+                except Exception:
+                    continue
+        
+        raise RuntimeError("No working Gemini model found")
+        
     except Exception as e:
         st.error(f"Error configuring Gemini API: {e}")
         return None
@@ -73,27 +149,20 @@ def process_uploaded_file(uploaded_file):
         return (text, "docx") # Return text directly for DOCX
     return None
 
-def extract_text_from_images(images: list, prompt: str):
-    """Uses Gemini to extract text (OCR) from a list of images."""
-    # Configure Gemini model locally to avoid potential lookup issues
-    api_key = None
-    try:
-        if 'GOOGLE_API_KEY' in st.secrets:
-            api_key = st.secrets['GOOGLE_API_KEY']
-        elif 'GEMINI_API_KEY' in st.secrets:
-            api_key = st.secrets['GEMINI_API_KEY']
-    except Exception:
-        api_key = None
-
-    if not api_key:
-        st.error('No Gemini API key found in st.secrets; cannot perform remote OCR.')
-        return None
-
-    try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('models/gemini-pro-latest')
-    except Exception as e:
-        st.error(f'Could not configure Gemini model: {e}')
+def extract_text_from_images(images: list, prompt: str, preferred_model=None):
+    """Uses Gemini to extract text (OCR) from a list of images.
+    
+    Args:
+        images: List of PIL Image objects
+        prompt: OCR extraction prompt
+        preferred_model: Optional model name to use (e.g., 'models/gemini-2.5-flash')
+        
+    Returns:
+        Extracted text string, or None if extraction fails
+    """
+    model = get_gemini_model(_preferred_model=preferred_model)
+    if not model:
+        st.error('Could not configure Gemini model for OCR.')
         return None
         
     try:
@@ -226,9 +295,21 @@ def grade_paper_locally(teacher_answers: dict, student_answers: dict):
 
 # --- Overall Feedback (using Gemini) ---
 
-def get_overall_feedback(student_name, subject, total_score, max_score, results_df):
-    """Uses Gemini to generate a final summary feedback for the student."""
-    model = get_gemini_model()
+def get_overall_feedback(student_name, subject, total_score, max_score, results_df, preferred_model=None):
+    """Uses Gemini to generate a final summary feedback for the student.
+    
+    Args:
+        student_name: Name of the student
+        subject: Subject being graded
+        total_score: Student's total score
+        max_score: Maximum possible score
+        results_df: DataFrame with question-by-question breakdown
+        preferred_model: Optional model name to use
+        
+    Returns:
+        AI-generated feedback string
+    """
+    model = get_gemini_model(_preferred_model=preferred_model)
     if not model:
         return "Could not generate AI feedback."
 
